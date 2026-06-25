@@ -8,6 +8,9 @@ use crate::tags::Tags;
 /// One bedGraph segment `[start, end)` carrying a value.
 pub type BedGraph = Vec<(i32, i32, f32)>;
 
+/// A raw pileup track for one reference: `(tid, segment end positions, values)`.
+pub type RawTrack = (i32, Vec<i32>, Vec<f32>);
+
 /// `se_all_in_one_pileup`: + tags cover `[p-five, p+three)`, - tags cover
 /// `[m-three, m+five)`; sweep emits the pileup *before* each event, floored at
 /// `baseline` and scaled by `scale`.
@@ -187,6 +190,43 @@ pub fn control_lambda(tags: &Tags, d: i32, gsize: f64, llocal: i32) -> Vec<(i32,
             let rlen = *tags.lengths.get(&tid).unwrap_or(&i32::MAX);
             let (p, v) = se_pileup(pt, mt, five, three, scale, lambda_bg, rlen);
             (tid, to_bedgraph(&p, &v))
+        })
+        .collect()
+}
+
+/// Treatment pileup as raw `(end_pos, value)` arrays per reference — the
+/// granularity the peak caller needs (the bedGraph merge is for `--bdg` only).
+#[must_use]
+pub fn treat_pileup_raw(tags: &Tags, d: i32) -> Vec<RawTrack> {
+    let empty = Vec::new();
+    sorted_tids(tags)
+        .iter()
+        .map(|&tid| {
+            let pt = tags.plus.get(&tid).unwrap_or(&empty);
+            let mt = tags.minus.get(&tid).unwrap_or(&empty);
+            let rlen = *tags.lengths.get(&tid).unwrap_or(&i32::MAX);
+            let (p, v) = se_pileup(pt, mt, 0, d, 1.0, 0.0, rlen);
+            (tid, p, v)
+        })
+        .collect()
+}
+
+/// No-control lambda as raw `(end_pos, value)` arrays per reference.
+#[must_use]
+pub fn control_lambda_raw(tags: &Tags, d: i32, gsize: f64, llocal: i32) -> Vec<RawTrack> {
+    let lambda_bg = (f64::from(d) * tags.total as f64 / gsize) as f32;
+    let scale = d as f32 / llocal as f32;
+    let half = llocal / 2;
+    let (five, three) = (half, llocal - half);
+    let empty = Vec::new();
+    sorted_tids(tags)
+        .iter()
+        .map(|&tid| {
+            let pt = tags.plus.get(&tid).unwrap_or(&empty);
+            let mt = tags.minus.get(&tid).unwrap_or(&empty);
+            let rlen = *tags.lengths.get(&tid).unwrap_or(&i32::MAX);
+            let (p, v) = se_pileup(pt, mt, five, three, scale, lambda_bg, rlen);
+            (tid, p, v)
         })
         .collect()
 }

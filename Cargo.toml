@@ -21,6 +21,7 @@ doctest = false
 [dependencies]
 rsomics-common = { version = "0.6" }
 rsomics-bamio = { version = "0.1" }
+noodles = { version = "0.110", features = ["sam"] }
 clap = { version = "4", features = ["derive"] }
 
 [dev-dependencies]

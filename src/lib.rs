@@ -5,6 +5,7 @@
 //! dynamic lambda → D Poisson p / BH q → E peak call + narrowPeak.
 
 pub mod model;
+pub mod pileup;
 pub mod tags;
 
 use std::path::PathBuf;

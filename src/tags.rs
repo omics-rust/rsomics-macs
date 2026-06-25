@@ -28,6 +28,8 @@ fn macs_se_skip(flags: u16) -> bool {
 pub struct Tags {
     pub plus: HashMap<i32, Vec<i32>>,
     pub minus: HashMap<i32, Vec<i32>>,
+    /// Reference id -> sequence length, for pileup coordinate clipping.
+    pub lengths: HashMap<i32, i32>,
     /// Tag size = `int(mean l_seq of the first 10 records)`, per MACS3 `tsize()`.
     pub tsize: u32,
     /// Total tags after the most recent `filter_dup`.
@@ -48,10 +50,16 @@ fn reference_span(rec: &RawRecord) -> i32 {
 /// Load 5' tags from `path`, skipping unmapped reads.
 pub fn load_bam(path: &Path) -> Result<Tags> {
     let mut reader = rsomics_bamio::open_parallel(path)?;
-    reader.read_header().map_err(RsomicsError::Io)?;
+    let header = reader.read_header().map_err(RsomicsError::Io)?;
+    let mut tags = Tags::default();
+    for (i, (_name, rs)) in header.reference_sequences().iter().enumerate() {
+        tags.lengths.insert(
+            i as i32,
+            i32::try_from(rs.length().get()).unwrap_or(i32::MAX),
+        );
+    }
     let inner = reader.get_mut();
     let mut rec = RawRecord::default();
-    let mut tags = Tags::default();
     let mut tsize_sum = 0u64;
     let mut tsize_n = 0u32;
     loop {

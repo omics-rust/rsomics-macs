@@ -1,7 +1,12 @@
 //! Poisson p-score, BH q-value table, and peak calling — the final MACS3
-//! `callpeak` stage. Value-exact per `.autopilot/state/macs-peaks-spec.md`.
+//! `callpeak` stage.
 
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::Path;
+
+use rsomics_common::{Result, RsomicsError};
 
 use crate::pileup::RawTrack;
 use crate::tags::Tags;
@@ -105,18 +110,18 @@ fn combine(tp: &[i32], tv: &[f32], cp: &[i32], cv: &[f32]) -> Vec<Seg> {
 }
 
 /// BH q-value table: `pscore(f32 bits) -> qscore`, ranking by base-pair length.
-fn build_pqtable(combined: &[Vec<Seg>], cache: &mut HashMap<(i32, u32), f32>) -> HashMap<u32, f32> {
-    let mut stat: HashMap<u32, i64> = HashMap::new();
+fn build_pqtable(combined: &[&[Seg]], cache: &mut HashMap<(i32, u32), f32>) -> HashMap<u32, f32> {
+    let mut bp_by_pscore: HashMap<u32, i64> = HashMap::new();
     for segs in combined {
         let mut pre = 0i32;
-        for &(end, tv, cv) in segs {
+        for &(end, tv, cv) in *segs {
             let ps = pscore(tv, cv, cache);
-            *stat.entry(ps.to_bits()).or_insert(0) += i64::from(end - pre);
+            *bp_by_pscore.entry(ps.to_bits()).or_insert(0) += i64::from(end - pre);
             pre = end;
         }
     }
-    let n: i64 = stat.values().sum();
-    let mut uniq: Vec<f32> = stat.keys().map(|&b| f32::from_bits(b)).collect();
+    let n: i64 = bp_by_pscore.values().sum();
+    let mut uniq: Vec<f32> = bp_by_pscore.keys().map(|&b| f32::from_bits(b)).collect();
     uniq.sort_unstable_by(|a, b| b.partial_cmp(a).unwrap()); // descending
     let f = -(n as f64).log10();
     let mut pqtable: HashMap<u32, f32> = HashMap::new();
@@ -124,7 +129,7 @@ fn build_pqtable(combined: &[Vec<Seg>], cache: &mut HashMap<(i32, u32), f32>) ->
     let mut pre_q = f64::from(i32::MAX);
     let mut broke = uniq.len();
     for (idx, &v) in uniq.iter().enumerate() {
-        let l = stat[&v.to_bits()];
+        let l = bp_by_pscore[&v.to_bits()];
         let mut q = f64::from(v) + ((k as f64).log10() + f);
         if q > pre_q {
             q = pre_q;
@@ -183,7 +188,9 @@ fn close_peak(
         pileup: st,
         pscore: ps,
         qscore: q,
-        fc: (st + 1.0) / (sc + 1.0),
+        // MACS computes fold change in f64 (pseudocount is a C double) then
+        // narrows to f32; doing it in f32 differs by 1 ulp at %.6g boundaries.
+        fc: ((f64::from(st) + 1.0) / (f64::from(sc) + 1.0)) as f32,
     });
 }
 
@@ -241,7 +248,7 @@ pub fn call_peaks(tags: &Tags, d: i32, treat: &[RawTrack], control: &[RawTrack])
         .collect();
 
     let mut cache: HashMap<(i32, u32), f32> = HashMap::new();
-    let all: Vec<Vec<Seg>> = combined.iter().map(|(_, c)| c.clone()).collect();
+    let all: Vec<&[Seg]> = combined.iter().map(|(_, c)| c.as_slice()).collect();
     let pqtable = build_pqtable(&all, &mut cache);
 
     let mut peaks = Vec::new();
@@ -252,4 +259,96 @@ pub fn call_peaks(tags: &Tags, d: i32, treat: &[RawTrack], control: &[RawTrack])
     }
     peaks.retain(|p| p.fc >= 1.0);
     peaks
+}
+
+/// Format like Python `%.6g` (6 significant figures) for narrowPeak values.
+fn py_g(v: f32) -> String {
+    let v = f64::from(v);
+    if v == 0.0 {
+        return "0".to_string();
+    }
+    let exp = v.abs().log10().floor() as i32;
+    if !(-4..6).contains(&exp) {
+        // Python `%g` scientific form: stripped mantissa, sign, 2-digit exponent.
+        let s = format!("{v:.5e}");
+        let (mantissa, e) = s.split_once('e').unwrap();
+        let mantissa = if mantissa.contains('.') {
+            mantissa.trim_end_matches('0').trim_end_matches('.')
+        } else {
+            mantissa
+        };
+        let ei: i32 = e.parse().unwrap();
+        return format!(
+            "{mantissa}e{}{:02}",
+            if ei < 0 { '-' } else { '+' },
+            ei.abs()
+        );
+    }
+    let decimals = (5 - exp).max(0) as usize;
+    let s = format!("{v:.decimals$}");
+    if s.contains('.') {
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    } else {
+        s
+    }
+}
+
+/// Write `<name>_peaks.narrowPeak` and `<name>_summits.bed` into `outdir`,
+/// sorted by chromosome name then start and globally numbered from 1.
+pub fn write_outputs(
+    peaks: &[Peak],
+    names: &HashMap<i32, String>,
+    name: &str,
+    outdir: &Path,
+) -> Result<()> {
+    let mut order: Vec<&Peak> = peaks.iter().collect();
+    order.sort_by(|a, b| {
+        let na = names.get(&a.tid).map_or("", String::as_str);
+        let nb = names.get(&b.tid).map_or("", String::as_str);
+        na.cmp(nb).then(a.start.cmp(&b.start))
+    });
+    let mut np = BufWriter::new(
+        File::create(outdir.join(format!("{name}_peaks.narrowPeak"))).map_err(RsomicsError::Io)?,
+    );
+    let mut sm = BufWriter::new(
+        File::create(outdir.join(format!("{name}_summits.bed"))).map_err(RsomicsError::Io)?,
+    );
+    for (i, p) in order.iter().enumerate() {
+        let n = i + 1;
+        let chrom = names.get(&p.tid).map_or("?", String::as_str);
+        let score = (10.0 * p.qscore) as i32;
+        writeln!(
+            np,
+            "{chrom}\t{}\t{}\t{name}_peak_{n}\t{score}\t.\t{}\t{}\t{}\t{}",
+            p.start,
+            p.end,
+            py_g(p.fc),
+            py_g(p.pscore),
+            py_g(p.qscore),
+            p.summit - p.start
+        )?;
+        writeln!(
+            sm,
+            "{chrom}\t{}\t{}\t{name}_peak_{n}\t{}",
+            p.summit,
+            p.summit + 1,
+            py_g(p.qscore)
+        )?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::py_g;
+
+    #[test]
+    fn py_g_matches_python_6g() {
+        assert_eq!(py_g(0.0), "0");
+        assert_eq!(py_g(18.5), "18.5");
+        assert_eq!(py_g(100.0), "100");
+        assert_eq!(py_g(123.456), "123.456");
+        assert_eq!(py_g(2_000_000.0), "2e+06");
+        assert_eq!(py_g(2f32.powi(-20)), "9.53674e-07");
+    }
 }

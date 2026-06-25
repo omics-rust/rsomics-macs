@@ -1,8 +1,8 @@
-//! Rust port of MACS3 `callpeak` (work in progress).
+//! Rust port of MACS3 `callpeak`: single-end, no-control peak calling.
 //!
-//! The value-exact algorithm is specified in `.autopilot/state/macs-spec.md`.
-//! Build sequence: A tag read + dedup [current] → B model d → C pileup +
-//! dynamic lambda → D Poisson p / BH q → E peak call + narrowPeak.
+//! Reads 5' tags from BAM, predicts the fragment length by cross-correlation
+//! (or takes `--extsize`), piles up extended tags, derives a dynamic local
+//! Poisson background, and emits `narrowPeak` + `summits.bed`.
 
 pub mod model;
 pub mod peaks;
@@ -24,6 +24,8 @@ pub struct CallPeakOpts {
     /// Skip model building and use `extsize` directly.
     pub nomodel: bool,
     pub extsize: i32,
+    /// Output directory for `<name>_peaks.narrowPeak` / `<name>_summits.bed`.
+    pub outdir: PathBuf,
 }
 
 /// Resolve `--keep-dup` to a per-position cap (0 = keep all).
@@ -31,7 +33,7 @@ fn resolve_keep_dup(spec: &str) -> Result<u32> {
     match spec {
         "all" => Ok(0),
         "auto" => Err(RsomicsError::InvalidInput(
-            "--keep-dup auto not yet implemented (binomial cal_max_dup_tags pending)".into(),
+            "--keep-dup auto is not supported; pass an integer cap or \"all\"".into(),
         )),
         s => s
             .parse::<u32>()
@@ -39,9 +41,14 @@ fn resolve_keep_dup(spec: &str) -> Result<u32> {
     }
 }
 
-/// Phase A: load and dedup the treatment track, reporting tag counts to stderr
-/// for differential comparison against macs3's reported numbers.
+/// Run no-control single-end callpeak: load + dedup tags, find the fragment
+/// length, pile up, call peaks, and write the narrowPeak / summits outputs.
 pub fn run_callpeak(opts: &CallPeakOpts) -> Result<()> {
+    if !opts.control.is_empty() {
+        return Err(RsomicsError::InvalidInput(
+            "control (-c) peak calling is not supported; omit -c for no-control callpeak".into(),
+        ));
+    }
     let cap = resolve_keep_dup(&opts.keep_dup)?;
     let first = opts.treatment.first().ok_or_else(|| {
         RsomicsError::InvalidInput("at least one -t treatment file required".into())
@@ -65,5 +72,11 @@ pub fn run_callpeak(opts: &CallPeakOpts) -> Result<()> {
         m.d
     };
     eprintln!("fragment length d = {d}");
+
+    let treat_track = pileup::treat_pileup_raw(&treat, d);
+    let control_track = pileup::control_lambda_raw(&treat, d, opts.gsize, 10000);
+    let called = peaks::call_peaks(&treat, d, &treat_track, &control_track);
+    eprintln!("{} peaks called", called.len());
+    peaks::write_outputs(&called, &treat.names, &opts.name, &opts.outdir)?;
     Ok(())
 }

@@ -1,7 +1,6 @@
 //! MACS3 `PeakModel.build()` — fragment-size `d` estimation.
 //!
-//! Value-exact port per `.autopilot/state/macs-peakmodel-spec.md`. Naive
-//! pileup-based peak finding on each strand, +/- peak pairing, then a
+//! Naive pileup-based peak finding on each strand, +/- peak pairing, then a
 //! cross-correlation of the paired-peak tag profiles whose dominant lag is the
 //! estimated fragment length `d`.
 

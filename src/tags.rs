@@ -1,8 +1,8 @@
 //! 5'-end tag tracks loaded from BAM — the MACS3 `FWTrack` equivalent.
 //!
-//! Per `.autopilot/state/macs-spec.md` §2: the + strand 5' end is the alignment
-//! start; the - strand 5' end is the alignment end (start + reference span). A
-//! tag is one 5' position; `filter_dup` caps duplicates at a position.
+//! The + strand 5' end is the alignment start; the - strand 5' end is the
+//! alignment end (start + reference span). A tag is one 5' position; `filter_dup`
+//! caps duplicate tags at a position.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -30,6 +30,8 @@ pub struct Tags {
     pub minus: HashMap<i32, Vec<i32>>,
     /// Reference id -> sequence length, for pileup coordinate clipping.
     pub lengths: HashMap<i32, i32>,
+    /// Reference id -> name, for output.
+    pub names: HashMap<i32, String>,
     /// Tag size = `int(mean l_seq of the first 10 records)`, per MACS3 `tsize()`.
     pub tsize: u32,
     /// Total tags after the most recent `filter_dup`.
@@ -52,11 +54,12 @@ pub fn load_bam(path: &Path) -> Result<Tags> {
     let mut reader = rsomics_bamio::open_parallel(path)?;
     let header = reader.read_header().map_err(RsomicsError::Io)?;
     let mut tags = Tags::default();
-    for (i, (_name, rs)) in header.reference_sequences().iter().enumerate() {
+    for (i, (name, rs)) in header.reference_sequences().iter().enumerate() {
         tags.lengths.insert(
             i as i32,
             i32::try_from(rs.length().get()).unwrap_or(i32::MAX),
         );
+        tags.names.insert(i as i32, name.to_string());
     }
     let inner = reader.get_mut();
     let mut rec = RawRecord::default();

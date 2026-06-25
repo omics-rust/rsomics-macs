@@ -27,12 +27,12 @@ pub const META: ToolMeta = ToolMeta {
 #[command(
     name = "rsomics-macs",
     version,
-    about = "Model-based ChIP-seq peak caller — MACS3 callpeak port (work in progress)",
+    about = "Model-based ChIP-seq peak caller — single-end no-control MACS3 callpeak port",
     long_about = None
 )]
 pub struct Cli {
-    /// ChIP-seq treatment BAM file(s). REQUIRED. (`-t` is reserved by the
-    /// shared `--threads` flag; treatment is long-only for now.)
+    /// ChIP-seq treatment BAM file(s). REQUIRED. (`-t` is taken by the shared
+    /// `--threads` flag; use `--treatment`.)
     #[arg(long = "treatment", required = true, num_args = 1..)]
     pub treatment: Vec<PathBuf>,
 
@@ -60,6 +60,10 @@ pub struct Cli {
     #[arg(long = "extsize", default_value_t = 200)]
     pub extsize: i32,
 
+    /// Output directory for the peak files.
+    #[arg(long = "outdir", default_value = ".")]
+    pub outdir: PathBuf,
+
     #[command(flatten)]
     pub common: CommonFlags,
 }
@@ -75,6 +79,7 @@ impl Cli {
             gsize,
             nomodel: self.nomodel,
             extsize: self.extsize,
+            outdir: self.outdir,
         })
     }
 }

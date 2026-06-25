@@ -1,7 +1,8 @@
 //! Fragment-extension pileup and the no-control dynamic local lambda.
 //!
-//! Value-exact port of MACS3 `se_all_in_one_pileup` + `__call_peaks_wo_control`
-//! per `.autopilot/state/macs-pileup-spec.md`.
+//! Ports MACS3 `se_all_in_one_pileup` and the no-control background of
+//! `__call_peaks_wo_control` (a single 10 kb local window over the treatment,
+//! floored at the genome-wide rate).
 
 use crate::tags::Tags;
 

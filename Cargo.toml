@@ -1,13 +1,14 @@
 [package]
 name = "rsomics-macs"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/omics-rust/rsomics-macs"
 authors = ["Zane Leong <efd@live.com>"]
-description = "Model-based ChIP-seq peak caller — Rust port of MACS3 callpeak (work in progress)"
-publish = false
+description = "Model-based ChIP-seq peak caller — single-end no-control Rust port of MACS3 callpeak"
+keywords = ["bioinformatics", "chip-seq", "peak-calling", "macs", "genomics"]
+categories = ["science", "command-line-utilities"]
 
 [[bin]]
 name = "rsomics-macs"

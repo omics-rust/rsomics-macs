@@ -1,0 +1,27 @@
+[package]
+name = "rsomics-macs"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.91"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/omics-rust/rsomics-macs"
+authors = ["Zane Leong <efd@live.com>"]
+description = "Model-based ChIP-seq peak caller — Rust port of MACS3 callpeak (work in progress)"
+publish = false
+
+[[bin]]
+name = "rsomics-macs"
+path = "src/main.rs"
+
+[lib]
+name = "rsomics_macs"
+path = "src/lib.rs"
+doctest = false
+
+[dependencies]
+rsomics-common = { version = "0.6" }
+rsomics-bamio = { version = "0.1" }
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3"

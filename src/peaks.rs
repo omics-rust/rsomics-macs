@@ -267,29 +267,31 @@ fn py_g(v: f32) -> String {
     if v == 0.0 {
         return "0".to_string();
     }
-    let exp = v.abs().log10().floor() as i32;
-    if !(-4..6).contains(&exp) {
-        // Python `%g` scientific form: stripped mantissa, sign, 2-digit exponent.
-        let s = format!("{v:.5e}");
-        let (mantissa, e) = s.split_once('e').unwrap();
+    // Python decides fixed vs scientific from the exponent *after* rounding to 6
+    // figures, so branch on the `{:.5e}` exponent rather than `floor(log10)` of
+    // the raw value (they differ at the 1e-4 / 1e6 boundaries).
+    let sci = format!("{v:.5e}");
+    let (mantissa, e) = sci.split_once('e').unwrap();
+    let exp: i32 = e.parse().unwrap();
+    if (-4..6).contains(&exp) {
+        let decimals = (5 - exp).max(0) as usize;
+        let s = format!("{v:.decimals$}");
+        if s.contains('.') {
+            s.trim_end_matches('0').trim_end_matches('.').to_string()
+        } else {
+            s
+        }
+    } else {
         let mantissa = if mantissa.contains('.') {
             mantissa.trim_end_matches('0').trim_end_matches('.')
         } else {
             mantissa
         };
-        let ei: i32 = e.parse().unwrap();
-        return format!(
+        format!(
             "{mantissa}e{}{:02}",
-            if ei < 0 { '-' } else { '+' },
-            ei.abs()
-        );
-    }
-    let decimals = (5 - exp).max(0) as usize;
-    let s = format!("{v:.decimals$}");
-    if s.contains('.') {
-        s.trim_end_matches('0').trim_end_matches('.').to_string()
-    } else {
-        s
+            if exp < 0 { '-' } else { '+' },
+            exp.abs()
+        )
     }
 }
 
@@ -350,5 +352,8 @@ mod tests {
         assert_eq!(py_g(123.456), "123.456");
         assert_eq!(py_g(2_000_000.0), "2e+06");
         assert_eq!(py_g(2f32.powi(-20)), "9.53674e-07");
+        // boundaries decided after rounding, not on floor(log10) of the raw value
+        assert_eq!(py_g(999_999.5), "1e+06");
+        assert_eq!(py_g(1e-4), "0.0001");
     }
 }

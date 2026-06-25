@@ -150,7 +150,9 @@ fn naive_call_peaks(
 }
 
 fn naive_find_peaks(tags: &[i32], peaksize: i32, min_v: f64, max_v: f64) -> Vec<(i32, f32)> {
-    if tags.is_empty() {
+    // MACS `__naive_find_peaks` needs at least two tags on the strand; a single
+    // tag can otherwise clear a min_v that rounds to 0 and skew pair selection.
+    if tags.len() < 2 {
         return Vec::new();
     }
     let (p, v) = naive_quick_pileup(tags, peaksize / 2);
@@ -345,7 +347,7 @@ pub fn build(
             "model cross-correlation has no local maximum past d_min".into(),
         ));
     }
-    maxima.sort_by(|&a, &b| ycorr[b].partial_cmp(&ycorr[a]).unwrap());
+    maxima.sort_by(|&a, &b| ycorr[b].total_cmp(&ycorr[a]));
     let d = xcorr[maxima[0]] as i32;
     let mut alternative_d: Vec<i32> = maxima.iter().map(|&i| xcorr[i] as i32).collect();
     alternative_d.sort_unstable();

@@ -4,6 +4,7 @@
 //! Build sequence: A tag read + dedup [current] → B model d → C pileup +
 //! dynamic lambda → D Poisson p / BH q → E peak call + narrowPeak.
 
+pub mod model;
 pub mod tags;
 
 use std::path::PathBuf;
@@ -16,6 +17,11 @@ pub struct CallPeakOpts {
     pub control: Vec<PathBuf>,
     pub keep_dup: String,
     pub name: String,
+    /// Effective genome size.
+    pub gsize: f64,
+    /// Skip model building and use `extsize` directly.
+    pub nomodel: bool,
+    pub extsize: i32,
 }
 
 /// Resolve `--keep-dup` to a per-position cap (0 = keep all).
@@ -45,5 +51,17 @@ pub fn run_callpeak(opts: &CallPeakOpts) -> Result<()> {
         "treatment tags: {before} total, {} after dup-filter (keep-dup={}), tsize {}",
         treat.total, opts.keep_dup, treat.tsize
     );
+
+    let d = if opts.nomodel {
+        opts.extsize
+    } else {
+        let m = model::build(&treat, opts.gsize, 300, 5.0, 50.0, 20)?;
+        eprintln!(
+            "predicted fragment length d = {} (alternatives {:?})",
+            m.d, m.alternative_d
+        );
+        m.d
+    };
+    eprintln!("fragment length d = {d}");
     Ok(())
 }

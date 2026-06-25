@@ -33,10 +33,12 @@ def emit(flag, leftmost):
 
 for i in range(NPEAKS):
     s = 2500 + i * 5000
-    for _ in range(RPS):
-        emit(0, s - FRAG // 2 + random.randint(-8, 8))
-    for _ in range(RPS):
-        emit(16, s + FRAG // 2 + random.randint(-8, 8) - RL)
+    # Distinct 5' positions per read (offset -RPS//2..RPS//2) so that --keep-dup 1
+    # does not collapse the signal — callpeak builds its model on deduped tags.
+    for j in range(RPS):
+        off = j - RPS // 2
+        emit(0, s - FRAG // 2 + off)
+        emit(16, s + FRAG // 2 + off - RL)
 for _ in range(BG):
     emit(random.choice([0, 16]), random.randint(0, L - RL))
 
